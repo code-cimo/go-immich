@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -35,7 +34,7 @@ func Connect(ctx context.Context, dsn string) (*Client, error) {
 		return nil, fmt.Errorf("legacy: connect: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
-		_ = pool.Close()
+		pool.Close()
 		return nil, fmt.Errorf("legacy: ping: %w", err)
 	}
 	c := &Client{pool: pool}
