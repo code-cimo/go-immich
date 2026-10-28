@@ -649,7 +649,7 @@ go mod download          # unduh semua modul ke cache lokal (perlu internet HANY
 go mod verify            # pastikan checksum modul cocok dgn go.sum (integritas supply-chain)
 go list -m all           # daftar penuh modul langsung + transitive
 go mod graph             # siapa menarik siapa (menelusuri modul tak dikenal)
-go get -u ./... && go mod tidy   # upgrade asese; JANGAN dilakukan tanpa regression test
+go get -u ./... && go mod tidy   # upgrade bebas; JANGAN dilakukan tanpa regression test
 ```
 
 Catatan penting:
