@@ -192,17 +192,6 @@ func (a *App) Run() error {
 	return nil
 }
 
-// CloseInit tears down a build-only App (used by `--init-only`): flushes the
-// async logger and closes the DB handle, which checkpoints the WAL. It must
-// not be called after Run().
-func (a *App) CloseInit() error {
-	a.logger.Close()
-	if a.sqlDB != nil {
-		return a.sqlDB.Close()
-	}
-	return nil
-}
-
 // shutdown performs the ordered teardown described in the package comment.
 func (a *App) shutdown(srv *http.Server, workerDone chan struct{}) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.ShutdownTimeout)

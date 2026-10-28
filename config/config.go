@@ -33,10 +33,9 @@ type Config struct {
 	// Security
 	JWTSecret       string
 	TokenValidity   time.Duration // 30 days to match Immich mobile expectations
-	AdminEmail        string // IMMICH_ADMIN_EMAIL (seeded only when users table is empty)
-	AdminPassword     string // IMMICH_ADMIN_PASSWORD (seeded only when users table is empty)
-	AdminName         string // IMMICH_ADMIN_NAME (display name of the seeded admin)
-	AllowInsecureAuth bool   // accept ?key= query param (legacy clients)
+	AdminEmail      string        // seeded admin e-mail (first login bootstrap)
+	AdminPassword   string        // seeded admin password
+	AllowInsecureAuth bool        // accept ?key= query param (legacy clients)
 
 	// Worker tuning (ODROID-C2: Amlogic S905 quad-core, 2GB RAM)
 	WorkerInterval     time.Duration // base tick of the compression worker
@@ -67,7 +66,6 @@ func Load() *Config {
 		TokenValidity:     envDuration("IMMICH_TOKEN_VALIDITY", 30*24*time.Hour),
 		AdminEmail:        envStr("IMMICH_ADMIN_EMAIL", "admin@example.com"),
 		AdminPassword:     envStr("IMMICH_ADMIN_PASSWORD", "admin123"),
-		AdminName:         envStr("IMMICH_ADMIN_NAME", "Administrator"),
 		WorkerInterval:    envDuration("IMMICH_WORKER_INTERVAL", 15*time.Second),
 		WorkerMaxCPUPct:   envInt("IMMICH_WORKER_MAX_CPU", 20),
 		ResizeConcurrency: envInt("IMMICH_RESIZE_CONCURRENCY", 2),
