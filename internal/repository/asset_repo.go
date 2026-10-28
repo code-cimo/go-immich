@@ -84,7 +84,7 @@ func (r *AssetRepo) Create(ctx context.Context, a *models.Asset) error {
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
 
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO assets (`+assetColumnsInsert+`) VALUES (`+strings.Repeat("?, ", 37)+"?)",
+		`INSERT INTO assets (`+assetColumnsInsert+`) VALUES (`+strings.Repeat("?, ", 38)+"?)",
 		a.ID, a.DeviceAssetID, a.OwnerID, a.OriginalPath, a.ThumbPath,
 		a.EncodedPath, string(a.Type), a.MimeType, a.FileName,
 		formatTS(a.FileCreatedAt), formatTS(a.FileModifiedAt), a.ChecksumSHA256,
@@ -94,7 +94,7 @@ func (r *AssetRepo) Create(ctx context.Context, a *models.Asset) error {
 		a.City, a.State, a.Country, a.Lat, a.Lon,
 		a.Make, a.Model, a.LensModel, a.ImageDescription,
 		a.ProjectionType, a.FPS, a.Timezone, a.Rating,
-		formatTS(a.CreatedAt), formatTS(a.UpdatedAt))
+		formatTS(a.CreatedAt), formatTS(a.UpdatedAt), dedupKey(a.OwnerID, a.ChecksumSHA256))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrDuplicateChecksum
@@ -110,7 +110,17 @@ const assetColumnsInsert = `id, device_asset_id, owner_id, original_path, thumb_
 	checksum_sha256, is_visible, is_favorite, is_archived, is_trashed, is_resized,
 	thumb_generated, file_size, width, height, DateTimeOriginal, local_date,
 	city, state, country, lat, lon, make, model, lens_model, exif_image_desc,
-	projection_type, fps, timezone, rating, created_at, updated_at`
+	projection_type, fps, timezone, rating, created_at, updated_at, checksum_owner`
+
+// dedupKey builds the owner-scoped unique key enforcing "same user may not
+// store identical content twice". Empty checksums (legacy/migrated rows) map
+// to NULL so SQLite's UNIQUE ignores them and such rows coexist.
+func dedupKey(ownerID, checksum string) interface{} {
+	if checksum == "" {
+		return nil
+	}
+	return ownerID + ":" + checksum
+}
 
 // ByID fetches one asset (nil when absent).
 func (r *AssetRepo) ByID(ctx context.Context, id string) (*models.Asset, error) {

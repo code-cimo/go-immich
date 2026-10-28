@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite" // pure Go driver - no CGO, cross-compiles cleanly for arm64
 )
@@ -42,7 +43,10 @@ CREATE TABLE IF NOT EXISTS assets (
     file_created_at  TEXT NOT NULL DEFAULT '',
     file_modified_at TEXT NOT NULL DEFAULT '',
     checksum_sha256  TEXT NOT NULL DEFAULT '',
-    checksum_unique  TEXT GENERATED ALWAYS AS (CASE WHEN checksum_sha256 = '' THEN NULL ELSE id || ':' || checksum_sha256 END) UNIQUE,
+    -- owner-scoped dedup key maintained by repository code (a plain UNIQUE
+    -- here would collide across users; empty checksums store NULL so legacy
+    -- rows without hashes coexist).
+    checksum_owner   TEXT UNIQUE,
     is_visible       INTEGER NOT NULL DEFAULT 1,
     is_favorite      INTEGER NOT NULL DEFAULT 0,
     is_archived      INTEGER NOT NULL DEFAULT 0,
@@ -71,11 +75,6 @@ CREATE TABLE IF NOT EXISTS assets (
     updated_at       TEXT NOT NULL,
     deleted_at       TEXT
 );
-
--- hot paths: gallery timeline + duplicate detection + worker queue scans
-CREATE INDEX IF NOT EXISTS idx_assets_owner_date ON assets (owner_id, local_date DESC);
-CREATE INDEX IF NOT EXISTS idx_assets_checksum   ON assets (checksum_sha256);
-CREATE INDEX IF NOT EXISTS idx_assets_pending    ON assets (thumb_generated, type);
 
 CREATE TABLE IF NOT EXISTS albums (
     id          TEXT PRIMARY KEY,
@@ -139,9 +138,17 @@ func Open(ctx context.Context, dbPath string, maxConns int) (*sql.DB, error) {
 	return db, nil
 }
 
-// InitSchema creates all tables/indexes idempotently and runs a quick PRAGMA
-// integrity sanity check (page_count based, O(1)).
+// InitSchema creates all tables/indexes idempotently, upgrades older on-disk
+// schemas in place, then re-applies the full DDL so fresh installs get every
+// column (including generated columns such as checksum_unique).
 func InitSchema(ctx context.Context, db *sql.DB) error {
+	// Step 0: migrate legacy databases that predate newer columns.
+	// CREATE TABLE IF NOT EXISTS never adds columns to an existing table,
+	// so without this an old assets table would crash every SELECT that
+	// references checksum_sha256 ("SQL logic error: no such column").
+	if err := migrateColumns(ctx, db); err != nil {
+		return fmt.Errorf("database: column migration: %w", err)
+	}
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("database: schema bootstrap: %w", err)
 	}
@@ -163,6 +170,96 @@ func EnsureStorageDirs(photosDir, thumbsDir, encodedDir string) error {
 	for _, d := range []string{photosDir, thumbsDir, encodedDir} {
 		if err := os.MkdirAll(d, 0o750); err != nil {
 			return fmt.Errorf("database: storage dir %q: %w", d, err)
+		}
+	}
+	return nil
+}
+
+// tableColumns returns the set of column names currently present in a table
+// using PRAGMA table_info (O(columns), no full scan). Returns an empty set if
+// the table does not exist yet.
+func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, "SELECT name FROM pragma_table_info(?)", table)
+	if err != nil {
+		return nil, fmt.Errorf("database: pragma_table_info(%s): %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	cols := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		cols[strings.ToLower(name)] = true
+	}
+	return cols, rows.Err()
+}
+
+// addColumnMissing issues ALTER TABLE ADD COLUMN only when the column is
+// absent, making schema upgrades idempotent across repeated boots. SQLite
+// requires a constant default for NOT NULL columns added to populated tables,
+// which every entry below satisfies.
+func addColumnMissing(ctx context.Context, db *sql.DB, table, column, definition string) error {
+	cols, err := tableColumns(ctx, db, table)
+	if err != nil {
+		return err
+	}
+	if len(cols) == 0 { // table not created yet - full DDL will include it
+		return nil
+	}
+	if cols[strings.ToLower(column)] {
+		return nil // already migrated
+	}
+	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
+	if _, err := db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("database: add column %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+// migrateColumns upgrades databases created by older releases to the current
+// schema. Two problems it solves:
+//
+//  1. CREATE TABLE IF NOT EXISTS never adds columns to an existing table, so
+//     a legacy assets table lacks checksum_sha256 and every SELECT that
+//     references it fails with "SQL logic error: no such column". New
+//     columns added to the DDL above MUST be listed in `upgrades`.
+//  2. The base schema's CREATE INDEX statements abort the whole multi-
+//     statement Exec when any indexed column is missing on very old/partial
+//     tables. Indexes are therefore created one-by-one here, skipping (never
+//     aborting boot for) indexes whose columns do not exist yet.
+func migrateColumns(ctx context.Context, db *sql.DB) error {
+	upgrades := []struct {
+		table, column, definition string
+	}{
+		{"assets", "checksum_sha256", "TEXT NOT NULL DEFAULT ''"},
+		{"assets", "checksum_owner", "TEXT"}, // UNIQUE added via index below
+		// users: keep in sync with the DDL above and userColumns in the repo.
+		{"users", "avatar_path", "TEXT NOT NULL DEFAULT ''"},
+		{"users", "is_admin", "INTEGER NOT NULL DEFAULT 0"},
+		{"users", "is_active", "INTEGER NOT NULL DEFAULT 1"},
+		{"users", "quota_bytes", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, u := range upgrades {
+		if err := addColumnMissing(ctx, db, u.table, u.column, u.definition); err != nil {
+			return err
+		}
+	}
+
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_assets_owner_date ON assets (owner_id, local_date DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_assets_checksum   ON assets (checksum_sha256)`,
+		`CREATE INDEX IF NOT EXISTS idx_assets_pending    ON assets (thumb_generated, type)`,
+		// Owner-scoped dedup constraint: fresh installs get it from the table
+		// DDL; legacy tables upgraded via ALTER need the explicit unique index.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_dedup ON assets (checksum_owner)`,
+	}
+	for _, stmt := range indexes {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			// Missing column on a legacy table: skip this index; handlers
+			// still work, just without the optimised scan path.
+			continue
 		}
 	}
 	return nil

@@ -189,15 +189,11 @@ func stepEnvFile(ctx context.Context, cfg *InstallCfg, log *DebugLog) error {
 }
 
 func stepDatabase(ctx context.Context, cfg *InstallCfg, log *DebugLog) error {
-	dbPath := filepath.Join(cfg.DataDir, "immich.db")
-	if st, err := os.Stat(dbPath); err == nil && st.Size() > 0 {
-		log.Line("database  : %s already exists (%s) - schema left untouched (upgrade mode)",
-			dbPath, humanSize(dbPath))
-		return nil
-	}
-	// Bootstrap through the server binary itself ("--init-only"): it owns the
-	// schema and admin seeding, so the installer never duplicates SQL and can
-	// never drift from the server's expectations.
+	// Always bootstrap through the server binary ("--init-only"): it owns the
+	// schema (CREATE ... IF NOT EXISTS + idempotent ALTER TABLE column
+	// upgrades) and admin seeding. Skipping existing databases would leave
+	// legacy schemas missing newer columns and crash the service on boot
+	// with "SQL logic error: no such column".
 	bin := filepath.Join(cfg.InstallDir, "immich-go")
 	cmd := exec.CommandContext(ctx, bin, "--init-only")
 	cmd.Env = append(os.Environ(), envPairs(cfg)...)
@@ -206,7 +202,12 @@ func stepDatabase(ctx context.Context, cfg *InstallCfg, log *DebugLog) error {
 	if err != nil {
 		return fmt.Errorf("database init: %w", err)
 	}
-	log.Line("database  : %s initialised, admin seeded as %s", dbPath, cfg.AdminEmail)
+	dbPath := filepath.Join(cfg.DataDir, "immich.db")
+	if st, statErr := os.Stat(dbPath); statErr == nil && st.Size() > 0 {
+		log.Line("database  : %s (%s) - schema verified/upgraded in place", dbPath, humanSize(dbPath))
+	} else {
+		log.Line("database  : %s initialised, admin seeded as %s", dbPath, cfg.AdminEmail)
+	}
 	return nil
 }
 
