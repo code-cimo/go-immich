@@ -59,8 +59,11 @@ func (r *UserRepo) ByID(ctx context.Context, id string) (*models.User, error) {
 // ByEmail looks up the login principal (case-insensitive e-mail, matching
 // Postgres citext behaviour of the original Immich schema).
 func (r *UserRepo) ByEmail(ctx context.Context, email string) (*models.User, error) {
-	row := r.db.QueryContext(ctx,
+	row, err := r.db.QueryContext(ctx,
 		"SELECT "+userColumns+" FROM users WHERE email = ? COLLATE NOCASE LIMIT 1", email)
+	if err != nil {
+		return nil, fmt.Errorf("repository: user by email: %w", err)
+	}
 	defer func() { _ = row.Close() }()
 	if !row.Next() {
 		return nil, nil

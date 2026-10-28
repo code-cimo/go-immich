@@ -156,7 +156,11 @@ func (r *AssetRepo) List(ctx context.Context, f ListFilter) ([]models.AssetRespo
 	q.WriteString("SELECT " + assetColumns + " FROM assets WHERE 1=1")
 	args := make([]any, 0, 8)
 
-	add := func(cond string, v any) { q.WriteString(" AND "); q.WriteString(cond); args = append(args, v) }
+	add := func(cond string, v ...any) {
+		q.WriteString(" AND ")
+		q.WriteString(cond)
+		args = append(args, v...)
+	}
 
 	if f.OwnerID != "" {
 		add("owner_id = ?", f.OwnerID)
@@ -251,6 +255,14 @@ func (r *AssetRepo) MarkThumbDone(ctx context.Context, id, thumbPath string, res
 func (r *AssetRepo) UpdateDimensions(ctx context.Context, id string, w, h int) error {
 	_, err := r.db.ExecContext(ctx,
 		"UPDATE assets SET width = ?, height = ? WHERE id = ?", w, h, id)
+	return err
+}
+
+// UpdatePath re-points an asset to its physical file after a resumed migration
+// run located a source file that was missing on the first pass.
+func (r *AssetRepo) UpdatePath(ctx context.Context, id, path string, size int64) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE assets SET original_path = ?, file_size = ? WHERE id = ?", path, size, id)
 	return err
 }
 

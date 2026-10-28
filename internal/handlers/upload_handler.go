@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -398,4 +399,31 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// decodeMaybeBase64 accepts both the base64 checksums sent by Immich mobile
+// and plain hex strings (defensive: some SDK versions send raw hex).
+func decodeMaybeBase64(s string) ([]byte, error) {
+	if raw, err := base64.StdEncoding.DecodeString(s); err == nil && len(raw) > 0 {
+		return raw, nil
+	}
+	if raw, err := hex.DecodeString(s); err == nil && len(raw) > 0 {
+		return raw, nil
+	}
+	return nil, errors.New("not a valid checksum encoding")
+}
+
+// decodeConfigSafe reads only the image header (first 256KB) to obtain pixel
+// dimensions without decoding full bitmaps - critical on a 2GB board.
+func decodeConfigSafe(r io.Reader) (image.Config, string, error) {
+	buf := make([]byte, 256*1024)
+	n, err := io.ReadAtLeast(r, buf, 32)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return image.Config{}, "", err
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(buf[:n]))
+	if err != nil {
+		return image.Config{}, "", err
+	}
+	return cfg, format, nil
 }
