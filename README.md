@@ -146,11 +146,16 @@ ls   # harus berisi: immich-go-installer, immich-go, immich-migrate
 
 ```bash
 git clone <repo> && cd go-immich
-make build-all        # menghasilkan bin/immich-go-linux-amd64, -arm64, dst.
-# atau khusus arm64:
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-  go build -ldflags="-s -w -X main.version=1.100.0" -o bin/immich-go-installer cmd/installer
+make deps               # unduh & verifikasi modul Go
+make build-all          # menghasilkan bin/immich-go-linux-{amd64,arm64}, migrate, installer
+# atau pakai script dengan log build persisten (rekomendasi bila build gagal):
+./scripts/build.sh all  # trace lengkap -> logs/build/build-all-<timestamp>.log
 ```
+
+> **Build error `No rule to make target 'build-all'`?** Berarti Anda berada di
+> commit/repo lama yang belum berisi `Makefile`. Cek dengan `ls Makefile`;
+> pastikan branch `main` terbaru (`git pull origin main`). Semua perintah build
+> juga tersedia via `./scripts/build.sh` bila `make` tidak terinstal.
 
 ---
 
@@ -524,7 +529,7 @@ curl -s -X POST $BASE/api/auth/login -H 'Content-Type: application/json' -d '{"e
 ### 12.6 Build khusus debugging (race detector & pprof)
 
 ```bash
-go build -race -o bin/immich-go-race cmd/server      # requires CGO — HANYA di laptop x86, jangan di ODROID
+go build -race -o bin/immich-go-race ./cmd/server      # requires CGO — HANYA di laptop x86, jangan di ODROID
 GODEBUG=gctrace=1 /opt/immich-go/immich-go           # trace GC (deteksi kebocoran memori)
 GOTRACEBACK=all kill -QUIT <pid>                     # dump goroutine lengkap → journalctl
 ```
@@ -664,16 +669,43 @@ git clone <repo> && cd go-immich
 make deps                # go mod download + verify
 make test                # unit test (jalan di arsitektur apa pun)
 make build-all           # bin/immich-go-linux-{amd64,arm64} + migrate + installer
-ls -lh bin/              # 6 artefak statis, masing-masing ±10–15 MB
+ls -lh bin/              # 6 artefak statis, masing-masing ±6–15 MB
 ```
 
-Build manual tanpa Makefile (mis. di CI minimal):
+Target Makefile yang tersedia (`make help` untuk daftar lengkap):
+
+| Target | Fungsi | Log |
+|---|---|---|
+| `make build` | build 3 binari untuk arsitektur mesin ini (dev cepat) | — |
+| `make build-amd64` / `build-arm64` | cross-compile satu arsitektur | — |
+| `make build-all` | **amd64 + arm64 sekaligus** | `logs/build/build-<os>-<arch>-<ts>.log` |
+| `make verify-build` | gerbang penuh: deps → vet → native → amd64 → arm64 | `logs/build/verify-<ts>.log` |
+| `make smoke` | boot server sementara + curl handshake iOS | `logs/build/smoke-<ts>.log` |
+| `make test-upload` | uji upload JPEG/MP4 end-to-end (dedup 409, thumbnail, Range 206) | `logs/build/upload-<ts>.log` |
+| `make release` | tarball per-arsitektur siap scp ke ODROID | `dist/` |
+| `make run-local` | jalankan server lokal di :2283, data di ./dev-data | stdout |
+| `make docker-arm64` / `docker-buildx` | image Docker multi-arch | `logs/build/docker-*` |
+| `make clean` | hapus bin/, logs/, dist/, dev-data/ | — |
+
+Alternatif tanpa GNU make (CI minimal / container kosong) — gunakan script dengan log persisten:
+
+```bash
+./scripts/build.sh            # native
+./scripts/build.sh all        # amd64 + arm64
+./scripts/build.sh verify     # + go test; kirim file logs/build/*.log saat lapor bug
+```
+
+Build manual satu baris (tanpa Makefile sama sekali):
 
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
   go build -trimpath -ldflags="-s -w -X main.version=1.100.0" \
-  -o bin/immich-go-linux-arm64 cmd/server
+  -o bin/immich-go-linux-arm64 ./cmd/server
 ```
+
+> Catatan: path paket harus `./cmd/server` (dengan titik), bukan `cmd/server` —
+> bentuk kedua membuat Go mencarinya di stdlib dan gagal dengan pesan
+> `package cmd/server is not in std`.
 
 ### 15.4 Development loop di x86_64
 

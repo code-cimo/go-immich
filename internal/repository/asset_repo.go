@@ -84,7 +84,7 @@ func (r *AssetRepo) Create(ctx context.Context, a *models.Asset) error {
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
 
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO assets (`+assetColumnsInsert+`) VALUES (`+strings.Repeat("?, ", 38)+"?)",
+		`INSERT INTO assets (`+assetColumnsInsert+`) VALUES (`+strings.Repeat("?, ", 37)+"?)",
 		a.ID, a.DeviceAssetID, a.OwnerID, a.OriginalPath, a.ThumbPath,
 		a.EncodedPath, string(a.Type), a.MimeType, a.FileName,
 		formatTS(a.FileCreatedAt), formatTS(a.FileModifiedAt), a.ChecksumSHA256,
