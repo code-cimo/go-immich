@@ -7,6 +7,7 @@ package config
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -31,21 +32,21 @@ type Config struct {
 	EncodedDir    string // transcoded videos   /data/encoded
 
 	// Security
-	JWTSecret       string
-	TokenValidity   time.Duration // 30 days to match Immich mobile expectations
-	AdminEmail        string // IMMICH_ADMIN_EMAIL (seeded only when users table is empty)
-	AdminPassword     string // IMMICH_ADMIN_PASSWORD (seeded only when users table is empty)
-	AdminName         string // IMMICH_ADMIN_NAME (display name of the seeded admin)
-	AllowInsecureAuth bool   // accept ?key= query param (legacy clients)
+	JWTSecret         string
+	TokenValidity     time.Duration // 30 days to match Immich mobile expectations
+	AdminEmail        string        // IMMICH_ADMIN_EMAIL (seeded only when users table is empty)
+	AdminPassword     string        // IMMICH_ADMIN_PASSWORD (seeded only when users table is empty)
+	AdminName         string        // IMMICH_ADMIN_NAME (display name of the seeded admin)
+	AllowInsecureAuth bool          // accept ?key= query param (legacy clients)
 
 	// Worker tuning (ODROID-C2: Amlogic S905 quad-core, 2GB RAM)
-	WorkerInterval     time.Duration // base tick of the compression worker
-	WorkerMaxCPUPct    int           // soft CPU budget (%) for background work
-	ResizeConcurrency  int           // max simultaneous image resizes
-	ResizeMaxWidth     int           // downscale originals wider than this
-	ResizeQuality      int           // JPEG quality (0-100) for recompression
-	ThumbnailSize      int           // gallery thumbnail edge length (px)
-	MemoryLimitBytes   uint64        // soft memory ceiling; workers back off above it
+	WorkerInterval    time.Duration // base tick of the compression worker
+	WorkerMaxCPUPct   int           // soft CPU budget (%) for background work
+	ResizeConcurrency int           // max simultaneous image resizes
+	ResizeMaxWidth    int           // downscale originals wider than this
+	ResizeQuality     int           // JPEG quality (0-100) for recompression
+	ThumbnailSize     int           // gallery thumbnail edge length (px)
+	MemoryLimitBytes  uint64        // soft memory ceiling; workers back off above it
 
 	// Database
 	MaxConns int // SQLite connection pool size (WAL readers + 1 writer)
@@ -54,15 +55,18 @@ type Config struct {
 // Load reads the environment and returns a fully-populated Config with safe
 // defaults for resource-constrained ARM64 boards.
 func Load() *Config {
+	// IMMICH_DATA_DIR is the installer's one-stop knob: when set, every path
+	// below defaults to a subdirectory of it unless individually overridden.
+	dataDir := envStr("IMMICH_DATA_DIR", "/data")
 	c := &Config{
 		Port:              envInt("IMMICH_PORT", 2283),
 		ReadTimeout:       envDuration("IMMICH_READ_TIMEOUT", 300*time.Second),
 		WriteTimeout:      envDuration("IMMICH_WRITE_TIMEOUT", 600*time.Second),
 		ShutdownTimeout:   envDuration("IMMICH_SHUTDOWN_TIMEOUT", 15*time.Second),
-		DBPath:            envStr("IMMICH_DB_PATH", "/data/immich.db"),
-		PhotosDir:         envStr("IMMICH_PHOTOS_DIR", "/data/photos"),
-		ThumbnailsDir:     envStr("IMMICH_THUMBNAILS_DIR", "/data/thumbnails"),
-		EncodedDir:        envStr("IMMICH_ENCODED_DIR", "/data/encoded"),
+		DBPath:            envStr("IMMICH_DB_PATH", filepath.Join(dataDir, "immich.db")),
+		PhotosDir:         envStr("IMMICH_PHOTOS_DIR", filepath.Join(dataDir, "photos")),
+		ThumbnailsDir:     envStr("IMMICH_THUMBNAILS_DIR", filepath.Join(dataDir, "thumbnails")),
+		EncodedDir:        envStr("IMMICH_ENCODED_DIR", filepath.Join(dataDir, "encoded")),
 		JWTSecret:         envStr("IMMICH_JWT_SECRET", ""),
 		TokenValidity:     envDuration("IMMICH_TOKEN_VALIDITY", 30*24*time.Hour),
 		AdminEmail:        envStr("IMMICH_ADMIN_EMAIL", "admin@example.com"),

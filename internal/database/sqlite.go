@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS albums (
     owner_id    TEXT NOT NULL REFERENCES users(id),
     album_name  TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    order       INTEGER NOT NULL DEFAULT 0,
+    "order"     INTEGER NOT NULL DEFAULT 0,
     thumb_asset_id TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
