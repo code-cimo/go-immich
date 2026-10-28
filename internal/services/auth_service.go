@@ -127,7 +127,7 @@ func (s *AuthService) EnsureAdmin(ctx context.Context) error {
 		ID:           "admin-" + time.Now().UTC().Format("20060102"),
 		Email:        s.cfg.AdminEmail,
 		PasswordHash: hash,
-		Name:         s.cfg.AdminName,
+		Name:         "Admin",
 		IsAdmin:      true,
 		IsActive:     true,
 	}
