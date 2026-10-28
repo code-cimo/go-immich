@@ -46,7 +46,7 @@ func main() {
 	flag.Parse()
 
 	cfg := installer.DefaultCfg()
-	applyOverrides(cfg, dataDir, instDir, port, email, password, noService)
+	applyOverrides(cfg, dataDir, instDir, port, *email, *password, noService)
 
 	if *exportOnly {
 		if err := runExportOnly(cfg, *log); err != nil {

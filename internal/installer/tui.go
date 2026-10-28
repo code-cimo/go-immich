@@ -274,7 +274,7 @@ func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		default:
-			r := msg runeOrEmpty(msg)
+			r := runeOrEmpty(msg)
 			if r != 0 {
 				m.input += string(r)
 			}
